@@ -26,7 +26,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = 'django-insecure-tpvqeuyj@10wk#bw@t64&wl&(=_$u+w0_hz2wuns_^)bey!69i'
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = False
+DEBUG = True
 
 ALLOWED_HOSTS = []
 
@@ -72,6 +72,8 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+
+    'monitoring.middleware.ResponseTimeMiddleware',  # Custom middleware for response time tracking
 ]
 
 ROOT_URLCONF = 'esm_core.urls'

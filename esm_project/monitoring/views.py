@@ -1,8 +1,10 @@
 # monitoring/views.py
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework import status, permissions
+from rest_framework import status, permissions,serializers
 from django.utils import timezone
+# from rest_framework.permissions import IsAuthenticated
+from .aggregators import registry, MovingAverage
 
 # Direct absolute imports from your flat root-level apps
 from monitoring.models import WorkflowExecution, LiveExecutionLog, WorkflowExecutionHistory, ExternalAPITracking
@@ -11,6 +13,9 @@ from engine.execution_manager import execution_manager
 from execution_hub.services import ExecutionHubService
 from .models import *
 import logging
+
+from rest_framework.parsers import JSONParser, MultiPartParser
+from .log_parser import count_exceptions
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +51,7 @@ class LiveExecutionControlView(APIView):
         for exe in queryset[:250]:
             chain_name = None
             try:
-                chain = Chain.objects.filter(chain_code=int(exe.chain_id)).first() if str(exe.chain_id).isdigit() else None
+                chain = Chain.objects.filter(chain_code=int(exe.chain_id)).first( ) if str(exe.chain_id).isdigit() else None
                 chain_name = chain.name if chain else None
             except Exception:
                 chain_name = None
@@ -429,3 +434,64 @@ class ExternalAPIStatusCallbackAPI(APIView):
             'execution_status': execution.status,
             'step_status': step.status
         }, status=status.HTTP_200_OK)
+
+
+
+class SampleSerializer(serializers.Serializer):
+    key = serializers.CharField(max_length=200, default="default")
+    value = serializers.FloatField(min_value=0)
+
+
+class BatchSerializer(serializers.Serializer):
+    values = serializers.ListField(child=serializers.FloatField(min_value=0), max_length=10_000)
+    n = serializers.IntegerField(min_value=1, max_value=100_000)
+
+
+class IngestView(APIView):
+    # permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        s = SampleSerializer(data=request.data)
+        s.is_valid(raise_exception=True)
+        avg = registry.add(s.validated_data["key"], s.validated_data["value"])
+        return Response({"key": s.validated_data["key"], "moving_average": avg},
+                        status=status.HTTP_201_CREATED)
+
+
+class BatchView(APIView):
+    """The interview example: {"values":[10,20,30],"n":2} -> [10,15,25]"""
+    # permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        s = BatchSerializer(data=request.data)
+        s.is_valid(raise_exception=True)
+        ma = MovingAverage(s.validated_data["n"])
+        return Response({"averages": [ma.add(v) for v in s.validated_data["values"]]})
+
+
+class StatsView(APIView):
+    # permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        return Response(registry.snapshot())    
+
+
+    
+class LogErrorsView(APIView):
+    """POST JSON {"lines": [...]}  OR  multipart file upload field 'file'."""
+    # permission_classes = [IsAuthenticated]
+    parser_classes = [JSONParser, MultiPartParser]
+
+    def post(self, request):
+        upload = request.FILES.get("file")
+        if upload:
+            lines = (l.decode("utf-8", errors="replace") for l in upload)  # streams
+        else:
+            lines = request.data.get("lines")
+            if not isinstance(lines, list) or not all(isinstance(l, str) for l in lines):
+                return Response({"error": "'lines' must be a list of strings"}, status=400)
+
+        counts = count_exceptions(lines)
+        ordered = dict(sorted(counts.items(), key=lambda kv: -kv[1]))
+        return Response({"total": sum(ordered.values()), "counts": ordered})
+

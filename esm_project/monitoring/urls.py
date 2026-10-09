@@ -10,6 +10,10 @@ from .views import (
     GlobalLiveConsoleAPI,
     DeleteExecutionAPI,
     ExternalAPIStatusCallbackAPI,
+    IngestView, 
+    BatchView,
+    LogErrorsView, 
+    StatsView
 )
 
 urlpatterns = [
@@ -26,4 +30,12 @@ urlpatterns = [
     path('process/<int:process_no>/stream/', GlobalLiveConsoleAPI.as_view(), name='global-console-stream'),
     # Force delete/archive a live execution
     path('execution/<uuid:execution_id>/delete/', DeleteExecutionAPI.as_view(), name='execution-delete'),
+
+
+
+    path("ingest/", IngestView.as_view()),
+    path("batch/", BatchView.as_view()),
+    path("stats/", StatsView.as_view()),
+
+   path("log-errors/", LogErrorsView.as_view()),
 ]
